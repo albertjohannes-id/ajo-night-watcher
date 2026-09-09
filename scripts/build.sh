@@ -6,6 +6,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" -O -swift-version 5 Sources/AjoNightWatcher.swift -o "$APP/Contents/MacOS/AjoNightWatcher" -framework AppKit -framework SwiftUI -framework UserNotifications
 cp assets/AjoNightWatcher.icns "$APP/Contents/Resources/AjoNightWatcher.icns"
 cp assets/AjoNightWatcher.png "$APP/Contents/Resources/AjoNightWatcher.png"
+cp backend/codex_usage.py "$APP/Contents/Resources/codex_usage.py"
 cp backend/watcher.py "$APP/Contents/Resources/watcher.py"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

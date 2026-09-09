@@ -24,6 +24,16 @@ Scheduling starts roughly 15–30 seconds after the reset time. The Mac must be 
 
 Launch at login is installed on this Mac through `~/Library/LaunchAgents/com.ajo.night-watcher.plist`. launchd restarts the UI after a crash but respects normal Quit. Disable it with `./scripts/disable-login.sh` (this also stops the managed UI).
 
+## Provider tabs and usage
+
+The current integration lives in the **Codex** tab. Provider-specific screens can be added to the tab container later; no other AI providers are connected yet. Codex is the accurate name here: its account limits are separate from general ChatGPT chat limits.
+
+Usage cards show **remaining** percentages and reset times for all windows returned by the signed-in Codex account. They refresh at startup, every two minutes while the app runs, and through their own refresh button. The adapter uses the documented read-only `account/rateLimits/read` method over a short-lived local Codex app-server process. It never starts an AI turn, purchases credits, or consumes a reset credit. No separate API key is needed.
+
+Usage requests run separately from scheduling, with a bounded timeout. On failure, the last successful reading is labeled **Last known** with its timestamp and an error; missing values show **Unavailable**, not zero. Cache files are local and private. Changing the configured CLI path prevents reuse of the previous executable's cache. A changed account is reflected on the next successful refresh.
+
+These are account-wide usage readings, not per-chat quotas. They are informational; the existing task-error detection and manual scheduling rules still determine which task resumes.
+
 ## Build and install
 
 Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`), `/usr/bin/python3`, and an authenticated Codex CLI. Built and verified on this Mac with Swift 6.2.3 and Codex CLI **0.153.4**. Builds for the host architecture; local ad-hoc signing, not notarized distribution.

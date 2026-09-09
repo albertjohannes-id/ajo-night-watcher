@@ -29,17 +29,53 @@ final class Store: ObservableObject {
     @Published var cli = ""
     @Published var error = ""
     @Published var busy = false
+    @Published var usage: CodexUsage?
+    @Published var usageBusy = false
+    private var lastUsageCheck = Date.distantPast
     private let queue = DispatchQueue(label: "ajo-night-watcher.backend")
     private var timer: Timer?
     private var seen = Set(UserDefaults.standard.stringArray(forKey: "seenEvents") ?? [])
     var backend: String { Bundle.main.path(forResource: "watcher", ofType: "py")! }
     init() {
         call(["op": "tick"])
+        refreshUsage()
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.tick() }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.tick() }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
-    func tick() { if !busy { call(["op": "tick"]) } }
+    func tick() {
+        if !busy { call(["op": "tick"]) }
+        if Date().timeIntervalSince(lastUsageCheck) >= 120 { refreshUsage() }
+    }
+    func refreshUsage() {
+        guard !usageBusy else { return }
+        usageBusy = true
+        lastUsageCheck = Date()
+        let resource = backend
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                let process = Process(), output = Pipe(), input = Pipe()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+                process.arguments = [resource]
+                var environment = ProcessInfo.processInfo.environment
+                environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + (environment["PATH"] ?? "")
+                process.environment = environment
+                process.standardOutput = output; process.standardInput = input; process.standardError = FileHandle.nullDevice
+                try process.run()
+                input.fileHandleForWriting.write(Data("{\"op\":\"usage\"}".utf8))
+                try input.fileHandleForWriting.close()
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let result = try JSONDecoder().decode(CodexUsage.self, from: data)
+                DispatchQueue.main.async { self.usage = result; self.usageBusy = false }
+            } catch {
+                DispatchQueue.main.async {
+                    self.usage = CodexUsage(buckets: self.usage?.buckets ?? [], updated: self.usage?.updated, stale: true, error: "Could not refresh usage. Try again.")
+                    self.usageBusy = false
+                }
+            }
+        }
+    }
     func call(_ request: [String: Any]) {
         guard !busy else { return }
         busy = true
@@ -114,6 +150,7 @@ struct RegistryView: View {
                 TextField("Search chat, project, repository or session ID", text: $filter).textFieldStyle(.roundedBorder)
                 Toggle("Watched only", isOn: $watchedOnly).toggleStyle(.checkbox)
             }
+            UsageView(store: store)
             HSplitView {
                 List(filtered, selection: $selection) { task in
                     VStack(alignment: .leading, spacing: 5) {
@@ -179,7 +216,7 @@ struct RegistryView: View {
                 Spacer()
                 Text("Local only · CLI session resume").font(.caption).foregroundStyle(.secondary)
             }
-        }.padding(20).frame(minWidth: 830, minHeight: 570)
+        }.padding(20).frame(minWidth: 830, minHeight: 730)
         .onChange(of: selection) { _ in
             editingResetTime = false
             resetDate = selected?.reset.map { Date(timeIntervalSince1970: $0) } ?? Date().addingTimeInterval(3600)
@@ -236,10 +273,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menu.addItem(withTitle: "Quit Watcher", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items { item.target = self }
         statusItem.menu = menu
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 930, height: 640), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Ajo Night Watcher"
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: RegistryView(store: store))
+        window.contentView = NSHostingView(rootView: ProviderTabs(store: store))
         window.center()
         if !CommandLine.arguments.contains("--background") { show() }
     }
@@ -253,3 +290,82 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+
+// Provider-specific screens keep future integrations separate from Codex behavior.
+struct ProviderTabs: View {
+    @ObservedObject var store: Store
+    var body: some View {
+        TabView {
+            RegistryView(store: store)
+                .tabItem { Label("Codex", systemImage: "terminal") }
+        }.padding(8)
+    }
+}
+
+struct UsageWindow: Decodable, Identifiable {
+    let id: String
+    let remaining: Double?
+    let minutes: Double?
+    let reset: Double?
+    var label: String {
+        guard let minutes = minutes else { return id == "primary" ? "Primary window" : "Secondary window" }
+        if minutes.truncatingRemainder(dividingBy: 1440) == 0 { return "\(Int(minutes / 1440))-day window" }
+        if minutes.truncatingRemainder(dividingBy: 60) == 0 { return "\(Int(minutes / 60))-hour window" }
+        return "\(Int(minutes))-minute window"
+    }
+}
+struct UsageBucket: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let plan: String?
+    let windows: [UsageWindow]
+}
+struct CodexUsage: Decodable {
+    let buckets: [UsageBucket]?
+    let updated: Double?
+    let stale: Bool?
+    let error: String?
+}
+struct UsageView: View {
+    @ObservedObject var store: Store
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Usage remaining").font(.subheadline.bold())
+                Text("Shared across your Codex sessions").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if store.usageBusy { ProgressView().controlSize(.small) }
+                if let updated = store.usage?.updated {
+                    Text("\(store.usage?.stale == true ? "Last known" : "Updated") \(Date(timeIntervalSince1970: updated).formatted(date: .omitted, time: .shortened))").font(.caption).foregroundStyle(.secondary)
+                }
+                Button { store.refreshUsage() } label: { Image(systemName: "arrow.clockwise") }
+                    .help("Refresh Codex usage").disabled(store.usageBusy)
+            }
+            if let error = store.usage?.error {
+                Text(error).font(.caption).foregroundStyle(.secondary)
+            }
+            if store.usage == nil {
+                Text("Checking your Codex account…").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(store.usage?.buckets ?? []) { bucket in
+                        ForEach(bucket.windows) { window in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text("\(bucket.name) · \(window.label)").font(.caption).foregroundStyle(.secondary)
+                                if let remaining = window.remaining {
+                                    Text(String(format: "%.0f%% remaining", remaining)).font(.headline)
+                                    ProgressView(value: remaining, total: 100).tint(remaining <= 10 ? .orange : .accentColor)
+                                } else { Text("Unavailable").font(.headline) }
+                                if let reset = window.reset {
+                                    Text("Resets \(Date(timeIntervalSince1970: reset).formatted(date: .abbreviated, time: .shortened))").font(.caption2).foregroundStyle(.secondary)
+                                } else { Text("Reset time unavailable").font(.caption2).foregroundStyle(.secondary) }
+                            }.padding(10).frame(width: 240, alignment: .leading)
+                                .background(Color.secondary.opacity(0.08)).cornerRadius(8)
+                        }
+                    }
+                }
+            }.frame(height: (store.usage?.buckets ?? []).contains(where: { !$0.windows.isEmpty }) ? 104 : 0)
+        }
+    }
+}

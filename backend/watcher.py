@@ -239,6 +239,10 @@ def worker(task_id, token):
             event(state, 'Task ' + ('finished' if status == 'Completed' else 'needs attention'), task['title'] + ': ' + note[:200])
 
 def command(request):
+    if request.get('op') == 'usage':
+        from codex_usage import snapshot
+        with transaction() as state: cli = state['cli']
+        return snapshot(cli, ROOT / 'usage.json')
     with transaction() as state:
         op = request.get('op', 'snapshot')
         error = None
