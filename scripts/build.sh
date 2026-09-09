@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP="$PWD/dist/Night Watcher.app"
+APP="$PWD/dist/Ajo Night Watcher.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 xcrun swiftc -target "$(uname -m)-apple-macosx13.0" -O -swift-version 5 Sources/NightWatcher.swift -o "$APP/Contents/MacOS/NightWatcher" -framework AppKit -framework SwiftUI -framework UserNotifications
 cp assets/NightWatcher.icns "$APP/Contents/Resources/NightWatcher.icns"
@@ -12,8 +12,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.ajo.night-watcher</string>
-<key>CFBundleName</key><string>Night Watcher</string>
-<key>CFBundleDisplayName</key><string>Night Watcher</string>
+<key>CFBundleName</key><string>Ajo Night Watcher</string>
+<key>CFBundleDisplayName</key><string>Ajo Night Watcher</string>
 <key>CFBundleExecutable</key><string>NightWatcher</string>
 <key>CFBundleIconFile</key><string>NightWatcher</string>
 <key>CFBundlePackageType</key><string>APPL</string>

@@ -100,7 +100,7 @@ struct RegistryView: View {
             HStack {
                 Image(nsImage: NSImage(contentsOfFile: Bundle.main.path(forResource: "NightWatcher", ofType: "png")!)!).resizable().frame(width: 46, height: 46)
                 VStack(alignment: .leading) {
-                    Text("Night Watcher").font(.title2.bold())
+                    Text("Ajo Night Watcher").font(.title2.bold())
                     Text("Continue your work when usage resets").foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -204,10 +204,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         UNUserNotificationCenter.current().delegate = self
         store = Store()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "moon.stars.fill", accessibilityDescription: "Night Watcher")
-        statusItem.button?.toolTip = "Night Watcher"
+        statusItem.button?.image = NSImage(systemSymbolName: "moon.stars.fill", accessibilityDescription: "Ajo Night Watcher")
+        statusItem.button?.toolTip = "Ajo Night Watcher"
         let menu = NSMenu()
-        menu.addItem(withTitle: "Night Watcher", action: #selector(show), keyEquivalent: "")
+        menu.addItem(withTitle: "Ajo Night Watcher", action: #selector(show), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Open task registry…", action: #selector(show), keyEquivalent: "o")
         menu.addItem(withTitle: "Refresh tasks", action: #selector(refresh), keyEquivalent: "r")
@@ -216,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for item in menu.items { item.target = self }
         statusItem.menu = menu
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 930, height: 640), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Night Watcher"
+        window.title = "Ajo Night Watcher"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: RegistryView(store: store))
         window.center()

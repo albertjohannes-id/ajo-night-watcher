@@ -1,12 +1,12 @@
-# Night Watcher
+# Ajo Night Watcher
 
-<img src="assets/NightWatcher.png" width="128" alt="Night Watcher app icon">
+<img src="assets/NightWatcher.png" width="128" alt="Ajo Night Watcher app icon">
 
 A compact native macOS menu-bar app that resumes a selected local Codex session after its usage limit resets. SwiftUI/AppKit interface, Python standard-library adapter, local JSON persistence. No Accessibility access, GUI clicking, web service, API key, or third-party packages.
 
 ## Start using it
 
-Installed app: `~/Applications/Night Watcher.app`. Open it, or click the moon-and-stars icon in the menu bar and choose **Open task registry**.
+Installed app: `~/Applications/Ajo Night Watcher.app`. Open it, or click the moon-and-stars icon in the menu bar and choose **Open task registry**.
 
 1. Select a session from the registry. Search by task, working directory, or session ID.
 2. Enable **Automatically resume this task**. Discovery alone never enables a task.
@@ -29,7 +29,7 @@ Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`), `/usr/b
 ```sh
 cd ~/Repository/night-watcher
 ./scripts/build.sh
-open 'dist/Night Watcher.app'
+open 'dist/Ajo Night Watcher.app'
 
 # Quit any running watcher before installing/updating:
 ./scripts/install.sh --login
@@ -87,7 +87,7 @@ Official reference: [Codex non-interactive mode and session resume](https://lear
 
 Source stays in `~/Repository/night-watcher`. Generated build and development test records are ignored by Git. No telemetry is sent by the watcher; resumed Codex runs use your normal Codex account and usage.
 
-To uninstall, run `./scripts/disable-login.sh`, quit the app, and remove `~/Applications/Night Watcher.app`. You can retain the Application Support folder for later use or remove it separately to delete watcher settings and logs. Codex's own sessions are never deleted by this app.
+To uninstall, run `./scripts/disable-login.sh`, quit the app, and remove `~/Applications/Ajo Night Watcher.app`. You can retain the Application Support folder for later use or remove it separately to delete watcher settings and logs. Codex's own sessions are never deleted by this app.
 
 ## App icon
 
