@@ -6,6 +6,7 @@ import UserNotifications
 struct WatchTask: Decodable, Identifiable {
     let id: String
     let title: String
+    let project_name: String?
     let cwd: String
     let state: String
     let armed: Bool
@@ -91,7 +92,7 @@ struct RegistryView: View {
     @State var draftCLI = ""
     @State var showIdleConfirmation = false
     var selected: WatchTask? { store.tasks.first { $0.id == selection } }
-    var filtered: [WatchTask] { store.tasks.filter { (!watchedOnly || $0.armed) && (filter.isEmpty || ($0.title + $0.cwd + $0.id).localizedCaseInsensitiveContains(filter)) } }
+    var filtered: [WatchTask] { store.tasks.filter { (!watchedOnly || $0.armed) && (filter.isEmpty || ([$0.title, $0.project_name ?? "", $0.cwd, $0.id].joined(separator: " ")).localizedCaseInsensitiveContains(filter)) } }
     func color(_ state: String) -> Color {
         switch state { case "Running": return .blue; case "Waiting": return .orange; case "Completed": return .green; case "Needs Input": return .red; default: return .secondary }
     }
@@ -109,7 +110,7 @@ struct RegistryView: View {
                 Button { store.tick() } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy)
             }
             HStack {
-                TextField("Search task, repository or session ID", text: $filter).textFieldStyle(.roundedBorder)
+                TextField("Search chat, project, repository or session ID", text: $filter).textFieldStyle(.roundedBorder)
                 Toggle("Watched only", isOn: $watchedOnly).toggleStyle(.checkbox)
             }
             HSplitView {
@@ -121,6 +122,9 @@ struct RegistryView: View {
                             Spacer()
                             Text(task.state).font(.caption).foregroundStyle(color(task.state))
                         }
+                        if let project = task.project_name {
+                            Label(project, systemImage: "folder").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
                         Text(task.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         if let reset = task.reset {
                             Text("Resume: " + Date(timeIntervalSince1970: reset + 15).formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.orange)
@@ -131,6 +135,9 @@ struct RegistryView: View {
                     if let task = selected {
                         Text(task.title).font(.headline).lineLimit(4).textSelection(.enabled)
                         Label(task.state, systemImage: "circle.fill").foregroundStyle(color(task.state))
+                        if let project = task.project_name {
+                            Label(project, systemImage: "folder").font(.subheadline).textSelection(.enabled)
+                        }
                         Text(task.cwd).font(.callout).textSelection(.enabled)
                         Text(task.id).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                         Toggle("Automatically resume this task", isOn: Binding(get: { task.armed }, set: { store.call(["op": "arm", "id": task.id, "armed": $0]) })).disabled(store.busy)

@@ -8,7 +8,7 @@ A compact native macOS menu-bar app that resumes a selected local Codex session 
 
 Installed app: `~/Applications/Ajo Night Watcher.app`. Open it, or click the moon-and-stars icon in the menu bar and choose **Open task registry**.
 
-1. Select a session from the registry. Search by task, working directory, or session ID.
+1. Select a session from the registry. Chat names match Codex’s saved titles. A folder label shows the project when assigned. Search by chat name, project name, working directory, or session ID.
 2. Enable **Automatically resume this task**. Discovery alone never enables a task.
 3. When a saved Codex error contains an explicit reset timestamp, the watcher schedules the continuation. Otherwise enter the reset time shown by Codex and choose **Schedule continuation**. This also enables watching.
 4. **Resume Now** sends the continuation immediately. Running tasks cannot be resumed again.
@@ -43,7 +43,7 @@ open 'dist/Ajo Night Watcher.app'
 ## Local architecture
 
 - AppKit menu-bar item and a SwiftUI registry window. A 15-second timer and wake notification run scheduler checks on a background queue.
-- `backend/watcher.py` reads up to 300 recent, unarchived root sessions from `$CODEX_HOME/state_5.sqlite` (default `~/.codex`). It uses a **read-only** SQLite connection and reads bounded tails of the referenced rollout JSONL files when changed. Repositories are taken from each session's `cwd`, including worktrees and projectless tasks. It does not enumerate `~/Repository` as a list of applications.
+- `backend/watcher.py` reads up to 300 recent, unarchived root sessions from `$CODEX_HOME/state_5.sqlite` (default `~/.codex`). It resolves saved chat names and database project IDs, with Desktop project assignments and exact saved workspace roots as a legacy fallback; explicitly projectless chats stay projectless. Optional Desktop labels come from `.codex-global-state.json`. It uses a **read-only** SQLite connection and reads bounded tails of the referenced rollout JSONL files when changed. Repositories are taken from each session's `cwd`, including worktrees and projectless tasks. It does not enumerate `~/Repository` as a list of applications.
 - Actual rate-limit errors plus explicit `resets_at`/`resetsAt` timestamps determine schedules. The latest token-count snapshot can supply reset times for windows with usage at or above 100%. Multiple exhausted windows use the latest reset. A usage snapshot alone never triggers continuation. Unknown/localized timestamps require manual entry; no guessed quota windows or retry polling.
 - Persisted registry, arm flags, prompt, reset times, event history and per-session run logs live under `~/Library/Application Support/Ajo Night Watcher/`. Directory is private (0700), writes are atomic, and filesystem locks serialize changes. Interrupted workers go to Needs Input instead of being blindly retried.
 - One detached worker runs at a time. It invokes a specific session ID through direct arguments, never through a shell:

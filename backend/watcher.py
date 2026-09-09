@@ -99,11 +99,52 @@ def inspect_log(text):
             else: status, reset = 'Needs Input', None
     return status, reset, message
 
+def desktop_projects():
+    """Optional Desktop labels and assignments; never modify Codex state."""
+    try:
+        data = json.loads((CODEX_HOME / '.codex-global-state.json').read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def display_metadata(row, desktop, projects):
+    name = row.get('name')
+    row['title'] = name.strip() if isinstance(name, str) and name.strip() else (row['title'].strip().splitlines() or ['Untitled task'])[0][:160]
+    row['project_name'] = None
+    project_id = row.get('project_id')
+    if project_id:
+        row['project_name'] = projects.get(project_id)
+        return row
+    if row['id'] in desktop.get('projectless-thread-ids', []):
+        return row
+    local = desktop.get('local-projects', {})
+    assignment = desktop.get('thread-project-assignments', {}).get(row['id'], {})
+    project_id = assignment.get('projectId') if isinstance(assignment, dict) else None
+    if project_id:
+        project = local.get(project_id, {})
+        row['project_name'] = project.get('name') or projects.get(project_id)
+        return row
+    # Legacy sidebar membership used a saved project's exact working root.
+    # Do not infer membership from arbitrary parent directories.
+    matches = [p.get('name') for p in local.values() if isinstance(p, dict)
+               and row['cwd'] in p.get('rootPaths', []) and p.get('name')]
+    if len(matches) == 1:
+        row['project_name'] = matches[0]
+    return row
+
 def metadata():
     db = CODEX_HOME / 'state_5.sqlite'
+    desktop = desktop_projects()
     with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=2) as c:
         c.row_factory = sqlite3.Row
-        return [dict(row) for row in c.execute("select id,title,cwd,rollout_path,updated_at from threads where archived=0 and (agent_path is null or agent_path='') order by updated_at desc limit 300")]
+        columns = {r['name'] for r in c.execute('pragma table_info(threads)')}
+        optional = ','.join(field if field in columns else 'NULL AS ' + field for field in ('name', 'project_id'))
+        rows = c.execute("select id,title,cwd,rollout_path,updated_at," + optional + " from threads where archived=0 and (agent_path is null or agent_path='') order by updated_at desc limit 300")
+        rows = [dict(row) for row in rows]
+        projects = {}
+        if c.execute("select 1 from sqlite_master where type='table' and name='projects'").fetchone():
+            projects = {r['id']: r['name'] for r in c.execute('select id,name from projects')}
+        return [display_metadata(row, desktop, projects) for row in rows]
 
 def worker_alive(task):
     run = task.get('run')
@@ -123,7 +164,6 @@ def refresh(state):
             task = dict(row, state='Idle', armed=False, reset=None, note='', fingerprint=None)
             state['tasks'][row['id']] = task
         task.update(row)
-        task['title'] = row['title'].splitlines()[0][:160] or 'Untitled task'
         task['available'] = True
     for task in state['tasks'].values():
         if task['id'] not in known: task['available'] = False
