@@ -87,6 +87,7 @@ struct RegistryView: View {
     @State var filter = ""
     @State var watchedOnly = false
     @State var resetDate = Date().addingTimeInterval(3600)
+    @State var editingResetTime = false
     @State var settings = false
     @State var draftPrompt = ""
     @State var draftCLI = ""
@@ -144,8 +145,14 @@ struct RegistryView: View {
                         Text(task.note.isEmpty ? "Watch for a recorded usage-limit error, or enter the reset time below." : task.note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                         Divider()
                         Text("Reset time (local time)").font(.subheadline.bold())
-                        DatePicker("Reset", selection: $resetDate, displayedComponents: [.date, .hourAndMinute]).labelsHidden()
-                        Button("Schedule continuation") { store.call(["op": "schedule", "id": task.id, "reset": resetDate.timeIntervalSince1970]) }.disabled(store.busy || task.state == "Running")
+                        DatePicker("Reset", selection: Binding(get: { resetDate }, set: { resetDate = $0; editingResetTime = true }), displayedComponents: [.date, .hourAndMinute]).labelsHidden()
+                        Button("Schedule continuation") { editingResetTime = false; store.call(["op": "schedule", "id": task.id, "reset": resetDate.timeIntervalSince1970]) }.disabled(store.busy || task.state == "Running")
+                        if editingResetTime, let reset = task.reset {
+                            Button("Use scheduled reset time") {
+                                resetDate = Date(timeIntervalSince1970: reset)
+                                editingResetTime = false
+                            }.font(.caption)
+                        }
                         Text("Runs about 15 seconds after the reset, or after this Mac wakes. Scheduling also enables auto-resume.").font(.caption).foregroundStyle(.secondary)
                         HStack {
                             Button("Resume Now") { store.call(["op": "resume", "id": task.id]) }.buttonStyle(.borderedProminent).disabled(store.busy || task.state == "Running")
@@ -173,7 +180,14 @@ struct RegistryView: View {
                 Text("Local only · CLI session resume").font(.caption).foregroundStyle(.secondary)
             }
         }.padding(20).frame(minWidth: 830, minHeight: 570)
-        .onChange(of: selection) { _ in if let value = selected?.reset { resetDate = Date(timeIntervalSince1970: value) } }
+        .onChange(of: selection) { _ in
+            editingResetTime = false
+            resetDate = selected?.reset.map { Date(timeIntervalSince1970: $0) } ?? Date().addingTimeInterval(3600)
+        }
+        .onChange(of: selected?.reset) { value in
+            guard !editingResetTime else { return }
+            resetDate = value.map { Date(timeIntervalSince1970: $0) } ?? Date().addingTimeInterval(3600)
+        }
         .alert("Confirm the task has stopped", isPresented: $showIdleConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Mark Idle") { if let id = selection { store.call(["op": "idle", "id": id]) } }

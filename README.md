@@ -18,6 +18,8 @@ Default prompt:
 
 > Continue from where you stopped. Review the existing changes first and continue the original task.
 
+The reset-time picker follows detected schedule updates automatically. Manual edits remain in place until you schedule them, switch chats, or choose **Use scheduled reset time**.
+
 Scheduling starts roughly 15–30 seconds after the reset time. The Mac must be awake and logged in; after sleep, overdue schedules run on wake. Closing the registry window leaves the menu-bar app running. Quitting the app pauses scheduling; an already-started CLI worker continues. Reopen the app to catch up. Disabling auto-resume cancels automatic dispatch without deleting the recorded time.
 
 Launch at login is installed on this Mac through `~/Library/LaunchAgents/com.ajo.night-watcher.plist`. launchd restarts the UI after a crash but respects normal Quit. Disable it with `./scripts/disable-login.sh` (this also stops the managed UI).
