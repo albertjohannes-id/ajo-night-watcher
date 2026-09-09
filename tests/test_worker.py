@@ -14,7 +14,7 @@ class WorkerTests(unittest.TestCase):
         # Directly seed a claimed job, then use the same entrypoint as launch().
         with w.transaction() as s:
             s['tasks']['session'].update(state='Running',run={'token':'test','started':time.time()})
-        env=dict(os.environ,NIGHT_WATCHER_DATA_HOME=str(w.ROOT),CODEX_HOME=str(w.CODEX_HOME))
+        env=dict(os.environ,AJO_NIGHT_WATCHER_DATA_HOME=str(w.ROOT),CODEX_HOME=str(w.CODEX_HOME))
         subprocess.run(['/usr/bin/python3',str(pathlib.Path(w.__file__).resolve()),'worker','session','test'],env=env,check=True,timeout=10)
         return w.command({'op':'snapshot'})['tasks'][0]
     def test_worker_success_and_exact_argv(self):

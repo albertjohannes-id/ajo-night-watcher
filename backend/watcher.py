@@ -3,7 +3,7 @@
 import contextlib, datetime, fcntl, json, os, pathlib, re, sqlite3, subprocess, sys, time, uuid
 
 HOME = pathlib.Path.home()
-ROOT = pathlib.Path(os.environ.get('NIGHT_WATCHER_DATA_HOME', HOME / 'Library/Application Support/Night Watcher'))
+ROOT = pathlib.Path(os.environ.get('AJO_NIGHT_WATCHER_DATA_HOME', HOME / 'Library/Application Support/Ajo Night Watcher'))
 CODEX_HOME = pathlib.Path(os.environ.get('CODEX_HOME', HOME / '.codex'))
 DEFAULT_PROMPT = 'Continue from where you stopped. Review the existing changes first and continue the original task.'
 DEFAULT_CLI = '/Applications/ChatGPT.app/Contents/Resources/codex'

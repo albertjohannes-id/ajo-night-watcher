@@ -12,7 +12,7 @@
 
 Limitations: no real account exhaustion was induced; automatic rate-limit error parsing is fixture-tested. OS notification delivery depends on the user’s notification settings. Sleep/wake delivery is wired to native wake events but was not tested by forcing this Mac to sleep. Desktop UI live-refresh and concurrent execution from another client are not guaranteed.
 
-## Night Watcher rename
+## Ajo Night Watcher rename
 
 - App, executable, source folder, bundle ID, launch agent, and Application Support location renamed. Existing local registry retained.
 - Original moon-and-clock icon generated from AppKit vector paths; PNG/ICNS bundled with the app.

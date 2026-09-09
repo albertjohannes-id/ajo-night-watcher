@@ -1,6 +1,6 @@
 # Ajo Night Watcher
 
-<img src="assets/NightWatcher.png" width="128" alt="Ajo Night Watcher app icon">
+<img src="assets/AjoNightWatcher.png" width="128" alt="Ajo Night Watcher app icon">
 
 A compact native macOS menu-bar app that resumes a selected local Codex session after its usage limit resets. SwiftUI/AppKit interface, Python standard-library adapter, local JSON persistence. No Accessibility access, GUI clicking, web service, API key, or third-party packages.
 
@@ -27,7 +27,7 @@ Launch at login is installed on this Mac through `~/Library/LaunchAgents/com.ajo
 Requires macOS 13+, Xcode Command Line Tools (`xcode-select --install`), `/usr/bin/python3`, and an authenticated Codex CLI. Built and verified on this Mac with Swift 6.2.3 and Codex CLI **0.153.4**. Builds for the host architecture; local ad-hoc signing, not notarized distribution.
 
 ```sh
-cd ~/Repository/night-watcher
+cd ~/Repository/ajo-night-watcher
 ./scripts/build.sh
 open 'dist/Ajo Night Watcher.app'
 
@@ -45,7 +45,7 @@ open 'dist/Ajo Night Watcher.app'
 - AppKit menu-bar item and a SwiftUI registry window. A 15-second timer and wake notification run scheduler checks on a background queue.
 - `backend/watcher.py` reads up to 300 recent, unarchived root sessions from `$CODEX_HOME/state_5.sqlite` (default `~/.codex`). It uses a **read-only** SQLite connection and reads bounded tails of the referenced rollout JSONL files when changed. Repositories are taken from each session's `cwd`, including worktrees and projectless tasks. It does not enumerate `~/Repository` as a list of applications.
 - Actual rate-limit errors plus explicit `resets_at`/`resetsAt` timestamps determine schedules. The latest token-count snapshot can supply reset times for windows with usage at or above 100%. Multiple exhausted windows use the latest reset. A usage snapshot alone never triggers continuation. Unknown/localized timestamps require manual entry; no guessed quota windows or retry polling.
-- Persisted registry, arm flags, prompt, reset times, event history and per-session run logs live under `~/Library/Application Support/Night Watcher/`. Directory is private (0700), writes are atomic, and filesystem locks serialize changes. Interrupted workers go to Needs Input instead of being blindly retried.
+- Persisted registry, arm flags, prompt, reset times, event history and per-session run logs live under `~/Library/Application Support/Ajo Night Watcher/`. Directory is private (0700), writes are atomic, and filesystem locks serialize changes. Interrupted workers go to Needs Input instead of being blindly retried.
 - One detached worker runs at a time. It invokes a specific session ID through direct arguments, never through a shell:
 
 ```sh
@@ -85,7 +85,7 @@ Official reference: [Codex non-interactive mode and session resume](https://lear
 
 ## Files and removal
 
-Source stays in `~/Repository/night-watcher`. Generated build and development test records are ignored by Git. No telemetry is sent by the watcher; resumed Codex runs use your normal Codex account and usage.
+Source stays in `~/Repository/ajo-night-watcher`. Generated build and development test records are ignored by Git. No telemetry is sent by the watcher; resumed Codex runs use your normal Codex account and usage.
 
 To uninstall, run `./scripts/disable-login.sh`, quit the app, and remove `~/Applications/Ajo Night Watcher.app`. You can retain the Application Support folder for later use or remove it separately to delete watcher settings and logs. Codex's own sessions are never deleted by this app.
 

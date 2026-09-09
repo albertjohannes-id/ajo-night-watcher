@@ -3,9 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="$PWD/dist/Ajo Night Watcher.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-xcrun swiftc -target "$(uname -m)-apple-macosx13.0" -O -swift-version 5 Sources/NightWatcher.swift -o "$APP/Contents/MacOS/NightWatcher" -framework AppKit -framework SwiftUI -framework UserNotifications
-cp assets/NightWatcher.icns "$APP/Contents/Resources/NightWatcher.icns"
-cp assets/NightWatcher.png "$APP/Contents/Resources/NightWatcher.png"
+xcrun swiftc -target "$(uname -m)-apple-macosx13.0" -O -swift-version 5 Sources/AjoNightWatcher.swift -o "$APP/Contents/MacOS/AjoNightWatcher" -framework AppKit -framework SwiftUI -framework UserNotifications
+cp assets/AjoNightWatcher.icns "$APP/Contents/Resources/AjoNightWatcher.icns"
+cp assets/AjoNightWatcher.png "$APP/Contents/Resources/AjoNightWatcher.png"
 cp backend/watcher.py "$APP/Contents/Resources/watcher.py"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -14,8 +14,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>com.ajo.night-watcher</string>
 <key>CFBundleName</key><string>Ajo Night Watcher</string>
 <key>CFBundleDisplayName</key><string>Ajo Night Watcher</string>
-<key>CFBundleExecutable</key><string>NightWatcher</string>
-<key>CFBundleIconFile</key><string>NightWatcher</string>
+<key>CFBundleExecutable</key><string>AjoNightWatcher</string>
+<key>CFBundleIconFile</key><string>AjoNightWatcher</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>

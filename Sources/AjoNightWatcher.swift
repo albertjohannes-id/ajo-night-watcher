@@ -28,7 +28,7 @@ final class Store: ObservableObject {
     @Published var cli = ""
     @Published var error = ""
     @Published var busy = false
-    private let queue = DispatchQueue(label: "night-watcher.backend")
+    private let queue = DispatchQueue(label: "ajo-night-watcher.backend")
     private var timer: Timer?
     private var seen = Set(UserDefaults.standard.stringArray(forKey: "seenEvents") ?? [])
     var backend: String { Bundle.main.path(forResource: "watcher", ofType: "py")! }
@@ -98,7 +98,7 @@ struct RegistryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Image(nsImage: NSImage(contentsOfFile: Bundle.main.path(forResource: "NightWatcher", ofType: "png")!)!).resizable().frame(width: 46, height: 46)
+                Image(nsImage: NSImage(contentsOfFile: Bundle.main.path(forResource: "AjoNightWatcher", ofType: "png")!)!).resizable().frame(width: 46, height: 46)
                 VStack(alignment: .leading) {
                     Text("Ajo Night Watcher").font(.title2.bold())
                     Text("Continue your work when usage resets").foregroundStyle(.secondary)
@@ -143,7 +143,7 @@ struct RegistryView: View {
                         HStack {
                             Button("Resume Now") { store.call(["op": "resume", "id": task.id]) }.buttonStyle(.borderedProminent).disabled(store.busy || task.state == "Running")
                             Button("Run log") {
-                                let p = NSHomeDirectory() + "/Library/Application Support/Night Watcher/" + task.id + ".jsonl"
+                                let p = NSHomeDirectory() + "/Library/Application Support/Ajo Night Watcher/" + task.id + ".jsonl"
                                 if FileManager.default.fileExists(atPath: p) { NSWorkspace.shared.open(URL(fileURLWithPath: p)) }
                                 else { store.error = "No watcher run log yet for this task." }
                             }
@@ -192,7 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var store: Store!
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        let directory = NSHomeDirectory() + "/Library/Application Support/Night Watcher"
+        let directory = NSHomeDirectory() + "/Library/Application Support/Ajo Night Watcher"
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         instanceLock = Darwin.open(directory + "/app.lock", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
         guard instanceLock >= 0, flock(instanceLock, LOCK_EX | LOCK_NB) == 0 else {
