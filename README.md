@@ -26,13 +26,17 @@ Launch at login is installed on this Mac through `~/Library/LaunchAgents/com.ajo
 
 ## Provider tabs and usage
 
-The current integration lives in the **Codex** tab. Provider-specific screens can be added to the tab container later; no other AI providers are connected yet. Codex is the accurate name here: its account limits are separate from general ChatGPT chat limits.
+The **Codex** tab watches local Codex sessions with account-wide usage cards. The **OpenCode** tab watches local OpenCode sessions across all models under the opencode provider (including Zen free models) at the session layer. Codex is the accurate name here: its account limits are separate from general ChatGPT chat limits.
 
 Usage cards show **remaining** percentages and reset times for all windows returned by the signed-in Codex account. They refresh at startup, every two minutes while the app runs, and through their own refresh button. The adapter uses the documented read-only `account/rateLimits/read` method over a short-lived local Codex app-server process. It never starts an AI turn, purchases credits, or consumes a reset credit. No separate API key is needed.
 
 Usage requests run separately from scheduling, with a bounded timeout. On failure, the last successful reading is labeled **Last known** with its timestamp and an error; missing values show **Unavailable**, not zero. Cache files are local and private. Changing the configured CLI path prevents reuse of the previous executable's cache. A changed account is reflected on the next successful refresh.
 
 These are account-wide usage readings, not per-chat quotas. They are informational; the existing task-error detection and manual scheduling rules still determine which task resumes.
+
+The OpenCode tab reads up to 300 unarchived sessions from `~/.local/share/opencode/opencode.db` over a read-only SQLite connection (session/message/project tables only; it never reads `auth.json`, `account.json`, or credentials). It derives Idle/Waiting/Needs Input/Completed from the latest recorded message per session. Zen exposes no account-wide quota endpoint, so rate-limit resets usually need manual entry; explicit timestamps in errors are honored when present. Headless continuation runs `opencode run -s SESSION_ID PROMPT` in the recorded directory; the CLI path defaults to `opencode` in `PATH` and is configurable in Settings. **Future:** the `opencode` CLI is not installed on this Mac yet, so resume is deferred — session monitoring works without it. Install later with `brew install anomalyco/tap/opencode` and smoke-test resume against a disposable session before relying on auto-resume.
+
+The **Claude Code** tab watches local Claude Code transcripts in `~/.claude/projects/*/*.jsonl` (bounded reads only; it never touches settings, auth material, or credentials). Titles prefer the recorded `ai-title`, falling back to the first user message and then the working directory. Limit errors are detected from recorded text with explicit reset timestamps honored when present, otherwise manual entry. Headless continuation runs `claude -p --resume SESSION_ID PROMPT`; the CLI at `/usr/local/bin/claude` is used by default and is configurable in Settings.
 
 ## Build and install
 
@@ -94,6 +98,11 @@ If Codex crashed and a session still says Running, first establish that the task
 - Recent-session list is capped at 300, and history parsing reads the final 2 MiB. Older tracked sessions outside the current discovery window remain listed but become unavailable. No legacy fallback silently rewrites Codex storage.
 
 Official reference: [Codex non-interactive mode and session resume](https://learn.chatgpt.com/docs/non-interactive-mode). Installed CLI help and read-only local inspection are the authority for version-specific details above.
+
+## Future work
+
+- OpenCode resume depends on the `opencode` CLI, which is not installed here yet (`brew install anomalyco/tap/opencode`). Monitoring works without it.
+- Headless resume for OpenCode (`opencode run -s`) and Claude Code (`claude -p --resume`) is implemented but not yet smoke-tested against disposable sessions. Auto-resume should not be relied on until those probes pass.
 
 ## Files and removal
 
