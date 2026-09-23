@@ -7,6 +7,11 @@ credential store. Covers every model under the OpenCode provider (including Zen
 free models) at the session layer; there is no account-wide Zen quota endpoint,
 so rate-limit resets fall back to manual scheduling unless an explicit timestamp
 is present in the recorded error.
+
+A bounded, read-only tail of ~/.local/share/opencode/log/opencode.log is also
+scanned. OpenCode retries a limited turn internally, so a live rate limit is never
+written to the database; the log is the only local record that names the session.
+It carries no reset time, so a detected limit still needs a manual reset time.
 """
 import contextlib, datetime, fcntl, json, os, pathlib, re, shutil, sqlite3, subprocess, sys, time, uuid
 
@@ -19,6 +24,9 @@ DEFAULT_CLI = 'opencode'
 REGISTRY = 'opencode_registry.json'
 STATE_LOCK = 'opencode_state.lock'
 WORKER_ERROR_LOG = 'opencode-worker-errors.log'
+LOG_RELATIVE = ('log', 'opencode.log')
+LOG_TAIL = 4 * 1024 * 1024
+LIMIT_WINDOW = 24 * 3600
 
 
 def prepare():
@@ -81,7 +89,9 @@ def rate_error_text(text):
     return ('429' in lowered or 'rate_limit' in lowered or 'rate limit' in lowered
             or 'quota' in lowered or 'credits_exhausted' in lowered
             or 'insufficient' in lowered and 'credit' in lowered
-            or 'usage limit' in lowered or 'too many requests' in lowered)
+            or 'usage limit' in lowered or 'too many requests' in lowered
+            or 'free usage' in lowered or 'usage exceeded' in lowered
+            or 'subscribe to go' in lowered)
 
 
 def tail(path, limit=2 * 1024 * 1024):
@@ -97,6 +107,46 @@ def cli_executable(cli):
     if '/' in cli:
         return os.access(cli, os.X_OK)
     return shutil.which(cli) is not None
+
+
+def limit_errors(window=LIMIT_WINDOW):
+    """Rate limits OpenCode recorded in its own log, keyed by session.
+
+    A limited turn is retried in-process, so nothing reaches the database until the
+    retry succeeds. The log line is the durable evidence; it has no reset time.
+    """
+    try:
+        text = tail(OPENCODE_HOME.joinpath(*LOG_RELATIVE), LOG_TAIL)
+    except OSError:
+        return {}
+    found = {}
+    for line in text.splitlines():
+        if 'level=ERROR' not in line or 'stream error' not in line:
+            continue
+        stamp = re.search(r'timestamp=(\S+)', line)
+        session = re.search(r'session\.id=(\S+)', line)
+        error = re.search(r'error\.error="([^"]*)"', line)
+        if not (stamp and session and error) or not rate_error_text(error.group(1)):
+            continue
+        at = epoch(stamp.group(1))
+        if not at or time.time() - at > window:
+            continue
+        other = found.get(session.group(1))
+        if other and other['at'] >= at:
+            continue
+        model = re.search(r'modelID=(\S+)', line)
+        found[session.group(1)] = {'at': at, 'model': model.group(1) if model else None,
+                                   'message': ' '.join(error.group(1).split())[:500]}
+    return found
+
+
+def limit_note(task, limit):
+    model = limit.get('model') or task.get('model') or 'unknown model'
+    if 'free' in model.lower():
+        return ('Free usage exceeded on %s. OpenCode keeps retrying and records no reset time; '
+                'enter it below to resume automatically.' % model)
+    return ('%s hit a provider rate limit. OpenCode keeps retrying and records no reset time; '
+            'enter it below to resume automatically.' % model)
 
 
 def discovery():
@@ -141,29 +191,41 @@ def discovery():
 
 
 def latest_messages(session_id, limit=10):
+    """Messages newest-first by creation time.
+
+    Ordering by time_updated is wrong here: OpenCode rewrites the user row with the
+    turn summary and diffs after the assistant replies, so the user message sorts
+    last and every finished turn looks unanswered.
+    """
     db = OPENCODE_HOME / 'opencode.db'
     with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=2) as c:
         c.row_factory = sqlite3.Row
         rows = c.execute(
-            "select data,time_updated from message where session_id=? order by time_updated desc limit ?",
+            "select data from message where session_id=? order by time_created desc, id desc limit ?",
             (session_id, limit))
         messages = []
-        newest = 0
         for row in rows:
-            newest = max(newest, row['time_updated'] or 0)
             try:
                 data = json.loads(row['data'])
             except ValueError:
                 continue
             if isinstance(data, dict):
                 messages.append(data)
-        return messages, epoch(newest)
+        return messages
+
+
+def last_activity(session_id):
+    """Newest write time recorded for the session, in epoch seconds."""
+    db = OPENCODE_HOME / 'opencode.db'
+    with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True, timeout=2) as c:
+        row = c.execute('select max(time_updated) from message where session_id=?', (session_id,)).fetchone()
+    return epoch(row[0]) if row and row[0] else None
 
 
 def inspect_session(session_id):
-    """Derive Idle/Waiting/Needs Input/Completed from recorded messages only."""
+    """Derive Idle/Waiting/Rate limited/Needs Input/Completed from recorded messages only."""
     try:
-        messages, newest = latest_messages(session_id)
+        messages = latest_messages(session_id)
     except (sqlite3.Error, OSError) as e:
         return 'Needs Input', None, 'Session history unavailable: ' + str(e)
     if not messages:
@@ -205,6 +267,7 @@ def refresh(state):
         rows = discovery()
     except (sqlite3.Error, OSError) as e:
         raise RuntimeError('Cannot read local OpenCode sessions: ' + str(e))
+    limits = limit_errors()
     known = {r['id'] for r in rows}
     for row in rows:
         task = state['tasks'].get(row['id'])
@@ -229,12 +292,17 @@ def refresh(state):
         status, reset, note = inspect_session(task['id'])
         if task.get('manual') and status not in ('Running', 'Completed'):
             continue
-        _, newest = (None, None)
+        newest = None
         try:
-            _, newest = latest_messages(task['id'], limit=1)
+            newest = last_activity(task['id'])
         except (sqlite3.Error, OSError):
             pass
-        fingerprint = [task.get('updated_at'), newest]
+        limit = limits.get(task['id'])
+        if limit and status != 'Running' and (not newest or newest <= limit['at']):
+            task.update(state='Rate limited', reset=None, manual=False,
+                        note=limit_note(task, limit))
+            continue
+        fingerprint = [task.get('updated_at'), newest, status]
         if fingerprint != task.get('fingerprint'):
             task['fingerprint'] = fingerprint
             task.update(state=status, reset=reset, note=note, manual=False)
