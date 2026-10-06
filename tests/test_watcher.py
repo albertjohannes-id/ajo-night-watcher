@@ -92,6 +92,25 @@ class RegistryTests(unittest.TestCase):
             with patch.object(w.time, 'sleep'):
                 s = w.command({'op': 'tick'})
         self.assertTrue(s['error'].startswith('Cannot read local Codex sessions:'))
+    def test_dead_cli_path_falls_back_to_path_lookup(self):
+        w.command({'op': 'snapshot'})
+        with w.transaction() as s:
+            s['cli'] = '/nonexistent/codex'
+            s['tasks']['session'].update(armed=True, state='Waiting', reset=time.time() - 30, manual=True)
+        with patch.object(w.shutil, 'which', return_value='/usr/bin/true'):
+            with patch.object(w.subprocess, 'Popen') as p:
+                s = w.command({'op': 'tick'})
+                p.assert_called_once()
+        self.assertEqual(s['cli'], '/usr/bin/true')
+    def test_missing_cli_everywhere_still_reports_error(self):
+        w.command({'op': 'snapshot'})
+        with w.transaction() as s:
+            s['cli'] = '/nonexistent/codex'
+            s['tasks']['session'].update(armed=True, state='Waiting', reset=time.time() - 30, manual=True)
+        with patch.object(w.shutil, 'which', return_value=None):
+            s = w.command({'op': 'tick'})
+        self.assertEqual(s['tasks'][0]['state'], 'Needs Input')
+        self.assertIn('Codex executable was not found', s['tasks'][0]['note'])
     def test_prompt_shell_characters_are_data(self):
         w.command({'op':'snapshot'})
         prompt='Do `nothing`; $(touch NEVER)'

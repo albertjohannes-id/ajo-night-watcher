@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """Local state and CLI adapter. No third-party packages, credential reads or shell commands."""
-import contextlib, datetime, fcntl, json, os, pathlib, re, sqlite3, subprocess, sys, time, uuid
+import contextlib, datetime, fcntl, json, os, pathlib, re, shutil, sqlite3, subprocess, sys, time, uuid
 
 HOME = pathlib.Path.home()
 ROOT = pathlib.Path(os.environ.get('AJO_NIGHT_WATCHER_DATA_HOME', HOME / 'Library/Application Support/Ajo Night Watcher'))
 CODEX_HOME = pathlib.Path(os.environ.get('CODEX_HOME', HOME / '.codex'))
 DEFAULT_PROMPT = 'Continue from where you stopped. Review the existing changes first and continue the original task.'
 DEFAULT_CLI = '/Applications/ChatGPT.app/Contents/Resources/codex'
+
+def resolve_cli(configured):
+    """Return a working Codex executable. ChatGPT app updates have removed
+    the bundled binary before, leaving the stored path dead; fall back to
+    a `codex` on PATH instead of failing every resume and usage refresh."""
+    if configured and os.access(configured, os.X_OK):
+        return configured
+    return shutil.which('codex') or configured
 
 def prepare():
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -197,7 +205,11 @@ def launch(state, task):
     if any(t['id'] != task['id'] and t['state'] == 'Running' and os.path.realpath(t['cwd']) == os.path.realpath(task['cwd']) for t in state['tasks'].values()):
         raise ValueError('Another Codex task is running in this working directory.')
     if not pathlib.Path(task['cwd']).is_dir(): raise ValueError('Working directory no longer exists.')
-    if not os.access(state['cli'], os.X_OK): raise ValueError('Codex executable was not found. Update its path in Settings.')
+    cli = resolve_cli(state['cli'])
+    if cli != state['cli']:
+        state['cli'] = cli
+        event(state, 'Codex CLI path updated', 'The stored executable no longer exists; using ' + cli + '.')
+    if not os.access(cli, os.X_OK): raise ValueError('Codex executable was not found. Update its path in Settings.')
     # Serialize all watcher continuations; never launch two against the same workspace.
     if any(t.get('run') for t in state['tasks'].values()): raise ValueError('Another watcher continuation is running.')
     token = str(uuid.uuid4())
@@ -217,7 +229,7 @@ def worker(task_id, token):
         with transaction() as state:
             task = state['tasks'][task_id]
             if (task.get('run') or {}).get('token') != token: return
-            cli, prompt, cwd = state['cli'], state['prompt'], task['cwd']
+            cli, prompt, cwd = resolve_cli(state['cli']), state['prompt'], task['cwd']
             event(state, 'Task resumed', task['title'])
         path = ROOT / (task_id + '.jsonl')
         status, reset, note = 'Needs Input', None, 'Codex did not finish successfully.'
@@ -248,7 +260,7 @@ def worker(task_id, token):
 def command(request):
     if request.get('op') == 'usage':
         from codex_usage import snapshot
-        with transaction() as state: cli = state['cli']
+        with transaction() as state: cli = resolve_cli(state['cli'])
         return snapshot(cli, ROOT / 'usage.json')
     with transaction() as state:
         op = request.get('op', 'snapshot')
