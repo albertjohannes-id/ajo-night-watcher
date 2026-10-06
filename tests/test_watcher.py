@@ -74,6 +74,24 @@ class RegistryTests(unittest.TestCase):
     def test_corrupt_state_fails_closed(self):
         w.prepare();(w.ROOT/'registry.json').write_text('bad')
         with self.assertRaises(ValueError):w.command({'op':'tick'})
+    def test_transient_db_lock_retries_then_recovers(self):
+        real = sqlite3.connect
+        calls = []
+        def flaky(*a, **k):
+            calls.append(1)
+            if len(calls) == 1: raise sqlite3.OperationalError('unable to open database file')
+            return real(*a, **k)
+        with patch.object(w.sqlite3, 'connect', flaky):
+            with patch.object(w.time, 'sleep'):
+                s = w.command({'op': 'tick'})
+        self.assertIsNone(s['error'])
+        self.assertEqual(len(s['tasks']), 1)
+        self.assertGreaterEqual(len(calls), 2)
+    def test_persistent_db_failure_still_reports_error(self):
+        with patch.object(w.sqlite3, 'connect', side_effect=sqlite3.OperationalError('unable to open database file')):
+            with patch.object(w.time, 'sleep'):
+                s = w.command({'op': 'tick'})
+        self.assertTrue(s['error'].startswith('Cannot read local Codex sessions:'))
     def test_prompt_shell_characters_are_data(self):
         w.command({'op':'snapshot'})
         prompt='Do `nothing`; $(touch NEVER)'

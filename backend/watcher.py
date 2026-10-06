@@ -156,7 +156,14 @@ def worker_alive(task):
     return time.time() - run['started'] < 10  # process startup grace
 
 def refresh(state):
-    rows = metadata()
+    try:
+        rows = metadata()
+    except (sqlite3.Error, OSError):
+        # Codex writes to its own database while it runs (turns,
+        # maintenance); a read landing mid-write fails transiently.
+        # One retry absorbs it before the UI reports an error.
+        time.sleep(1)
+        rows = metadata()
     known = {r['id'] for r in rows}
     for row in rows:
         task = state['tasks'].get(row['id'])

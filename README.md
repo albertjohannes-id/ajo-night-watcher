@@ -71,18 +71,6 @@ Rule: every push to `main` auto-increments the PATCH digit through `.github/work
 
 Rebuild/reinstall after pulling to pick up the new version.
 
-## Dev helper: port conflicts
-
-`./scripts/run-with-port.sh` runs any command on a desired port and shows a modal when the port is already taken — which process holds it (`lsof` + `ps`), with a choice to terminate that process or run on the next verified-free port:
-
-```sh
-./scripts/run-with-port.sh 3000 -- npm run dev
-./scripts/run-with-port.sh --next 3000 -- npm run dev  # no prompt, use next free port
-./scripts/run-with-port.sh --kill 3000 -- npm run dev  # no prompt, terminate occupant
-```
-
-Interactive runs show a native macOS dialog (terminal prompt over SSH/CI); the chosen port is exported as `PORT`. No dependencies beyond macOS built-ins.
-
 ## Local architecture
 
 - AppKit menu-bar item and a SwiftUI registry window. A 15-second timer and wake notification run scheduler checks on a background queue.
