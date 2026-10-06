@@ -1020,23 +1020,66 @@ struct CursorSnapshot: Decodable {
     let error: String?
 }
 
+struct CursorUsage: Decodable {
+    let tier: String?
+    let model: String?
+    let cli_version: String?
+    let updated: Double?
+    let stale: Bool?
+    let error: String?
+}
+
 final class CursorStore: ObservableObject {
     @Published var tasks: [CursorTask] = []
     @Published var prompt = ""
     @Published var cli = ""
     @Published var error = ""
     @Published var busy = false
+    @Published var usage: CursorUsage?
+    @Published var usageBusy = false
+    private var lastUsageCheck = Date.distantPast
     private let queue = DispatchQueue(label: "ajo-night-watcher.cursor-backend")
     private var timer: Timer?
     private var seen = Set(UserDefaults.standard.stringArray(forKey: "seenCursorEvents") ?? [])
     var backend: String { Bundle.main.path(forResource: "cursor", ofType: "py")! }
     init() {
         call(["op": "tick"])
+        refreshUsage()
         timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.tick() }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.tick() }
     }
     func tick() {
         if !busy { call(["op": "tick"]) }
+        if Date().timeIntervalSince(lastUsageCheck) >= 120 { refreshUsage() }
+    }
+    func refreshUsage() {
+        guard !usageBusy else { return }
+        usageBusy = true
+        lastUsageCheck = Date()
+        let resource = backend
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                let process = Process(), output = Pipe(), input = Pipe()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+                process.arguments = [resource]
+                var environment = ProcessInfo.processInfo.environment
+                environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + (environment["PATH"] ?? "")
+                process.environment = environment
+                process.standardOutput = output; process.standardInput = input; process.standardError = FileHandle.nullDevice
+                try process.run()
+                input.fileHandleForWriting.write(Data("{\"op\":\"usage\"}".utf8))
+                try input.fileHandleForWriting.close()
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let result = try JSONDecoder().decode(CursorUsage.self, from: data)
+                DispatchQueue.main.async { self.usage = result; self.usageBusy = false }
+            } catch {
+                DispatchQueue.main.async {
+                    self.usage = CursorUsage(tier: self.usage?.tier, model: self.usage?.model, cli_version: self.usage?.cli_version, updated: self.usage?.updated, stale: true, error: "Could not refresh Cursor account info. Try again.")
+                    self.usageBusy = false
+                }
+            }
+        }
     }
     func call(_ request: [String: Any]) {
         guard !busy else { return }
@@ -1095,6 +1138,16 @@ struct CursorRegistryView: View {
     func color(_ state: String) -> Color {
         switch state { case "Running": return .blue; case "Waiting": return .orange; case "Rate limited": return .pink; case "Completed": return .green; case "Needs Input": return .red; default: return .secondary }
     }
+    func usageLine(_ usage: CursorUsage) -> String {
+        var parts: [String] = []
+        if let tier = usage.tier { parts.append(tier + " plan") }
+        if let model = usage.model { parts.append(model) }
+        if let version = usage.cli_version { parts.append("CLI " + version) }
+        var line = parts.isEmpty ? "Account info unavailable" : parts.joined(separator: " · ")
+        if usage.stale == true { line = "Last known · " + line }
+        if let error = usage.error, !error.isEmpty { line += " (" + error + ")" }
+        return line
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
@@ -1112,7 +1165,17 @@ struct CursorRegistryView: View {
                 TextField("Search task, repository or session ID", text: $filter).textFieldStyle(.roundedBorder)
                 Toggle("Watched only", isOn: $watchedOnly).toggleStyle(.checkbox)
             }
-            Text("Desktop chats and CLI sessions share one list. Cursor keeps no usage data on disk, so resets need manual entry.").font(.caption).foregroundStyle(.secondary)
+            Text("Desktop chats and CLI sessions share one list. Cursor reports no remaining usage, so resets need manual entry.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                if let usage = store.usage {
+                    Text(usageLine(usage)).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Checking your Cursor account…").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if store.usageBusy { ProgressView().controlSize(.small) }
+                Button { store.refreshUsage() } label: { Image(systemName: "arrow.clockwise") }.help("Refresh Cursor account info").disabled(store.usageBusy)
+            }
             HSplitView {
                 List(filtered, selection: $selection) { task in
                     VStack(alignment: .leading, spacing: 5) {

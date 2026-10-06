@@ -258,5 +258,34 @@ class WorkerTests(unittest.TestCase):
         self.assertIn('boom', t['note'])
 
 
+class UsageTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.root = pathlib.Path(self.tmp.name)
+        self.addCleanup(patch.stopall)
+        patch.object(u, 'ROOT', self.root / 'data').start()
+        patch.object(u, 'CURSOR_HOME', self.root).start()
+
+    def test_usage_reports_plan_tier_model_and_version(self):
+        fake = self.root / 'fake-cursor-agent'
+        fake.write_text('#!/bin/sh\necho \'{"subscriptionTier":"Pro","model":"M","cliVersion":"1.0"}\'')
+        fake.chmod(0o755)
+        u.command({'op': 'settings', 'cli': str(fake), 'prompt': 'Continue'})
+        info = u.command({'op': 'usage'})
+        self.assertEqual((info['tier'], info['model'], info['cli_version']), ('Pro', 'M', '1.0'))
+        self.assertFalse(info['stale'])
+        self.assertIsNone(info['error'])
+
+    def test_usage_failure_is_labeled_not_zeroed(self):
+        with patch.object(u.shutil, 'which', return_value=None):
+            with patch.object(u, 'CLI_CANDIDATES', ()):
+                with u.transaction() as s:
+                    s['cli'] = '/nonexistent/cursor-agent'
+                info = u.command({'op': 'usage'})
+        self.assertTrue(info['stale'])
+        self.assertIsNone(info.get('tier'))
+        self.assertTrue(info['error'])
+
+
 if __name__ == '__main__':
     unittest.main()

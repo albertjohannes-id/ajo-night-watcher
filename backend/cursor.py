@@ -8,11 +8,15 @@ Reads only two documented local stores, both over read-only/bounded access:
 - ~/.cursor/projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl desktop
   agent transcripts (bounded tails); the slug encodes the workspace path and
   is only accepted when it decodes to a real directory.
-
 Never touches account, auth, configuration or analytics material; only the
-two session stores above are ever opened. Cursor keeps no quota or reset information on disk, so limits are recognized
-from assistant-role text markers with explicit reset timestamps honored when
-present, from the watcher's own resume run log, or through manual reset entry.
+two session stores above are ever opened. Cursor exposes no remaining-usage
+or token counts anywhere readable: `cursor-agent status` reports only the
+login, and `cursor-agent about --format json` reports the plan tier, default
+model and CLI version but no numbers. The tab therefore shows that account
+snapshot (tier/model/version, refreshed at startup, every two minutes and on
+demand) instead of usage cards. Limits are recognized from assistant-role
+text markers with explicit reset timestamps honored when present, from the
+watcher's own resume run log, or through manual reset entry.
 Headless continuation runs `cursor-agent -p --resume SESSION_ID PROMPT` in the
 recorded directory; implemented but not yet smoke-tested against a disposable
 session, so auto-resume should not be relied on until that probe passes.
@@ -344,6 +348,47 @@ def inspect_session(task):
     except (OSError, RuntimeError) as e:
         return 'Needs Input', None, 'Session history unavailable: ' + str(e)
 
+def read_about(cli, timeout=12):
+    """Plan tier, default model and CLI version; Cursor reports no usage numbers."""
+    try:
+        p = subprocess.run([cli, 'about', '--format', 'json'], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout)
+    except OSError as e:
+        raise RuntimeError('Cursor executable was not found: ' + str(e))
+    except subprocess.TimeoutExpired:
+        raise TimeoutError('Cursor account request timed out.')
+    if p.returncode != 0:
+        raise RuntimeError('Cursor could not read account info.')
+    try:
+        info = json.loads(p.stdout.decode('utf-8', errors='replace'))
+    except ValueError:
+        raise RuntimeError('Cursor returned an unreadable account response.')
+    if not isinstance(info, dict):
+        raise RuntimeError('Cursor returned an unreadable account response.')
+    return info
+
+
+def usage_snapshot(cli, cache):
+    previous = {}
+    try:
+        previous = json.loads(cache.read_text())
+        if previous.get('cli') != cli:
+            previous = {}
+    except (OSError, ValueError):
+        pass
+    try:
+        info = read_about(cli)
+        value = {'cli': cli, 'tier': info.get('subscriptionTier'), 'model': info.get('model'),
+                 'cli_version': info.get('cliVersion'), 'updated': time.time(), 'stale': False, 'error': None}
+        cache.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = cache.with_suffix('.tmp')
+        temporary.write_text(json.dumps(value))
+        temporary.chmod(0o600)
+        os.replace(temporary, cache)
+        return value
+    except (OSError, RuntimeError, TimeoutError, ValueError) as error:
+        return dict(previous, cli=cli, stale=True, updated=previous.get('updated'), error=str(error))
+
 
 def worker_alive(task):
     run = task.get('run')
@@ -477,6 +522,10 @@ def worker(task_id, token):
 
 
 def command(request):
+    if request.get('op') == 'usage':
+        with transaction() as state:
+            cli = resolve_cli(state['cli'])
+        return usage_snapshot(cli, ROOT / 'cursor_usage.json')
     with transaction() as state:
         op = request.get('op', 'snapshot')
         error = None
