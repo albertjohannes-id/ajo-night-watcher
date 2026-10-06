@@ -303,16 +303,25 @@ struct ProviderTabs: View {
     @ObservedObject var opencodeStore: OpencodeStore
     @ObservedObject var claudeStore: ClaudeStore
     @ObservedObject var commandCodeStore: CommandCodeStore
+    static var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
+    }
     var body: some View {
-        TabView {
-            RegistryView(store: store)
-                .tabItem { Label("Codex", systemImage: "terminal") }
-            OpencodeRegistryView(store: opencodeStore)
-                .tabItem { Label("OpenCode", systemImage: "sparkles") }
-            ClaudeRegistryView(store: claudeStore)
-                .tabItem { Label("Claude Code", systemImage: "brain") }
-            CommandCodeRegistryView(store: commandCodeStore)
-                .tabItem { Label("Command Code", systemImage: "chevron.left.forwardslash.chevron.right") }
+        VStack(spacing: 0) {
+            TabView {
+                RegistryView(store: store)
+                    .tabItem { Label("Codex", systemImage: "terminal") }
+                OpencodeRegistryView(store: opencodeStore)
+                    .tabItem { Label("OpenCode", systemImage: "sparkles") }
+                ClaudeRegistryView(store: claudeStore)
+                    .tabItem { Label("Claude Code", systemImage: "brain") }
+                CommandCodeRegistryView(store: commandCodeStore)
+                    .tabItem { Label("Command Code", systemImage: "chevron.left.forwardslash.chevron.right") }
+            }
+            HStack {
+                Text("v" + Self.appVersion).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+            }.padding(.leading, 4).padding(.top, 2)
         }.padding(8)
     }
 }

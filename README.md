@@ -58,6 +58,19 @@ open 'dist/Ajo Night Watcher.app'
 
 `./scripts/install.sh` without `--login` installs and opens the app without creating a login agent. It does not remove an existing login agent.
 
+## App version
+
+The app shows its version small at the bottom-left of the registry window (e.g. `v1.0.0`), read from the `VERSION` file (`MAJOR.MINOR.PATCH`) via `CFBundleShortVersionString` at build time.
+
+Rule: every push to `main` auto-increments the PATCH digit through `.github/workflows/bump-version.yml` (the bump commit carries `[skip ci]` so it never loops). For feature or breaking releases, bump manually before pushing:
+
+```sh
+./scripts/bump-version.sh minor  # 1.0.1 -> 1.1.0
+./scripts/bump-version.sh major  # 1.1.0 -> 2.0.0
+```
+
+Rebuild/reinstall after pulling to pick up the new version.
+
 ## Dev helper: port conflicts
 
 `./scripts/run-with-port.sh` runs any command on a desired port and shows a modal when the port is already taken — which process holds it (`lsof` + `ps`), with a choice to terminate that process or run on the next verified-free port:
