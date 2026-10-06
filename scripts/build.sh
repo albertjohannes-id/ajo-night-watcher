@@ -16,6 +16,7 @@ cp backend/watcher.py "$APP/Contents/Resources/watcher.py"
 cp backend/opencode.py "$APP/Contents/Resources/opencode.py"
 cp backend/claude.py "$APP/Contents/Resources/claude.py"
 cp backend/commandcode.py "$APP/Contents/Resources/commandcode.py"
+cp backend/cursor.py "$APP/Contents/Resources/cursor.py"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -251,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var opencodeStore: OpencodeStore!
     var claudeStore: ClaudeStore!
     var commandCodeStore: CommandCodeStore!
+    var cursorStore: CursorStore!
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         let directory = NSHomeDirectory() + "/Library/Application Support/Ajo Night Watcher"
@@ -267,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         opencodeStore = OpencodeStore()
         claudeStore = ClaudeStore()
         commandCodeStore = CommandCodeStore()
+        cursorStore = CursorStore()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "moon.stars.fill", accessibilityDescription: "Ajo Night Watcher")
         statusItem.button?.toolTip = "Ajo Night Watcher"
@@ -282,12 +284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 980, height: 800), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "Ajo Night Watcher"
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: ProviderTabs(store: store, opencodeStore: opencodeStore, claudeStore: claudeStore, commandCodeStore: commandCodeStore))
+        window.contentView = NSHostingView(rootView: ProviderTabs(store: store, opencodeStore: opencodeStore, claudeStore: claudeStore, commandCodeStore: commandCodeStore, cursorStore: cursorStore))
         window.center()
         if !CommandLine.arguments.contains("--background") { show() }
     }
     @objc func show() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
-    @objc func refresh() { store.tick(); opencodeStore.tick(); claudeStore.tick(); commandCodeStore.tick() }
+    @objc func refresh() { store.tick(); opencodeStore.tick(); claudeStore.tick(); commandCodeStore.tick(); cursorStore.tick() }
     @objc func quit() { NSApp.terminate(nil) }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { show(); return true }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) { completionHandler([.banner, .sound]) }
@@ -303,6 +305,7 @@ struct ProviderTabs: View {
     @ObservedObject var opencodeStore: OpencodeStore
     @ObservedObject var claudeStore: ClaudeStore
     @ObservedObject var commandCodeStore: CommandCodeStore
+    @ObservedObject var cursorStore: CursorStore
     static var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
     }
@@ -317,6 +320,8 @@ struct ProviderTabs: View {
                     .tabItem { Label("Claude Code", systemImage: "brain") }
                 CommandCodeRegistryView(store: commandCodeStore)
                     .tabItem { Label("Command Code", systemImage: "chevron.left.forwardslash.chevron.right") }
+                CursorRegistryView(store: cursorStore)
+                    .tabItem { Label("Cursor", systemImage: "text.cursor") }
             }
             HStack {
                 Text("v" + Self.appVersion).font(.caption2).foregroundStyle(.secondary)
@@ -992,6 +997,204 @@ struct UsageView: View {
                     }
                 }
             }.frame(height: (store.usage?.buckets ?? []).contains(where: { !$0.windows.isEmpty }) ? 104 : 0)
+        }
+    }
+}
+
+struct CursorTask: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let cwd: String
+    let state: String
+    let armed: Bool
+    let reset: Double?
+    let note: String
+    let available: Bool?
+}
+
+struct CursorSnapshot: Decodable {
+    let tasks: [CursorTask]?
+    let prompt: String?
+    let cli: String?
+    let events: [WatchEvent]?
+    let error: String?
+}
+
+final class CursorStore: ObservableObject {
+    @Published var tasks: [CursorTask] = []
+    @Published var prompt = ""
+    @Published var cli = ""
+    @Published var error = ""
+    @Published var busy = false
+    private let queue = DispatchQueue(label: "ajo-night-watcher.cursor-backend")
+    private var timer: Timer?
+    private var seen = Set(UserDefaults.standard.stringArray(forKey: "seenCursorEvents") ?? [])
+    var backend: String { Bundle.main.path(forResource: "cursor", ofType: "py")! }
+    init() {
+        call(["op": "tick"])
+        timer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.tick() }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.tick() }
+    }
+    func tick() {
+        if !busy { call(["op": "tick"]) }
+    }
+    func call(_ request: [String: Any]) {
+        guard !busy else { return }
+        busy = true
+        let resource = backend
+        queue.async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = [resource]
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:" + (env["PATH"] ?? "")
+            process.environment = env
+            let input = Pipe(), output = Pipe(), errors = Pipe()
+            process.standardInput = input; process.standardOutput = output; process.standardError = errors
+            do {
+                try process.run()
+                input.fileHandleForWriting.write(try JSONSerialization.data(withJSONObject: request))
+                try input.fileHandleForWriting.close()
+                let data = output.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let snapshot = try JSONDecoder().decode(CursorSnapshot.self, from: data)
+                DispatchQueue.main.async {
+                    if let tasks = snapshot.tasks { self.tasks = tasks }
+                    if let p = snapshot.prompt { self.prompt = p }
+                    if let c = snapshot.cli { self.cli = c }
+                    self.error = snapshot.error ?? ""
+                    self.busy = false
+                    for event in snapshot.events ?? [] where !self.seen.contains(event.id) {
+                        self.seen.insert(event.id)
+                        let content = UNMutableNotificationContent()
+                        content.title = event.title; content.body = event.body; content.sound = .default
+                        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: event.id, content: content, trigger: nil))
+                    }
+                    UserDefaults.standard.set(Array(self.seen.suffix(200)), forKey: "seenCursorEvents")
+                }
+            } catch {
+                DispatchQueue.main.async { self.error = error.localizedDescription; self.busy = false }
+            }
+        }
+    }
+}
+
+struct CursorRegistryView: View {
+    @ObservedObject var store: CursorStore
+    @State var selection: String?
+    @State var filter = ""
+    @State var watchedOnly = false
+    @State var resetDate = Date().addingTimeInterval(3600)
+    @State var editingResetTime = false
+    @State var settings = false
+    @State var draftPrompt = ""
+    @State var draftCLI = ""
+    @State var showIdleConfirmation = false
+    var selected: CursorTask? { store.tasks.first { $0.id == selection } }
+    var filtered: [CursorTask] { store.tasks.filter { (!watchedOnly || $0.armed) && (filter.isEmpty || ([$0.title, $0.cwd, $0.id].joined(separator: " ")).localizedCaseInsensitiveContains(filter)) } }
+    func color(_ state: String) -> Color {
+        switch state { case "Running": return .blue; case "Waiting": return .orange; case "Rate limited": return .pink; case "Completed": return .green; case "Needs Input": return .red; default: return .secondary }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Image(systemName: "text.cursor").font(.title2).foregroundStyle(.secondary)
+                VStack(alignment: .leading) {
+                    Text("Cursor").font(.title2.bold())
+                    Text("Continue your work when usage resets").foregroundStyle(.secondary)
+                }
+                Spacer()
+                if store.busy { ProgressView().controlSize(.small) }
+                Button { draftPrompt = store.prompt; draftCLI = store.cli; settings = true } label: { Image(systemName: "gearshape") }
+                Button { store.tick() } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy)
+            }
+            HStack {
+                TextField("Search task, repository or session ID", text: $filter).textFieldStyle(.roundedBorder)
+                Toggle("Watched only", isOn: $watchedOnly).toggleStyle(.checkbox)
+            }
+            Text("Desktop chats and CLI sessions share one list. Cursor keeps no usage data on disk, so resets need manual entry.").font(.caption).foregroundStyle(.secondary)
+            HSplitView {
+                List(filtered, selection: $selection) { task in
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            if task.armed { Image(systemName: "eye.fill").foregroundStyle(.orange) }
+                            Text(task.title.isEmpty ? "Untitled task" : task.title).fontWeight(.medium).lineLimit(1)
+                            Spacer()
+                            Text(task.state).font(.caption).foregroundStyle(color(task.state))
+                        }
+                        Text(task.cwd.isEmpty ? "No working directory recorded" : task.cwd.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        if let reset = task.reset {
+                            Text("Resume: " + Date(timeIntervalSince1970: reset + 15).formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.orange)
+                        }
+                    }.padding(.vertical, 5).tag(task.id)
+                }.frame(minWidth: 370)
+                VStack(alignment: .leading, spacing: 14) {
+                    if let task = selected {
+                        Text(task.title).font(.headline).lineLimit(4).textSelection(.enabled)
+                        Label(task.state, systemImage: "circle.fill").foregroundStyle(color(task.state))
+                        Text(task.cwd.isEmpty ? "No working directory recorded" : task.cwd).font(.callout).textSelection(.enabled)
+                        Text(task.id).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        Toggle("Automatically resume this task", isOn: Binding(get: { task.armed }, set: { store.call(["op": "arm", "id": task.id, "armed": $0]) })).disabled(store.busy)
+                        Text(task.note.isEmpty ? "Watch for a recorded usage-limit error, or enter the reset time below." : task.note).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        Divider()
+                        Text("Reset time (local time)").font(.subheadline.bold())
+                        DatePicker("Reset", selection: Binding(get: { resetDate }, set: { resetDate = $0; editingResetTime = true }), displayedComponents: [.date, .hourAndMinute]).labelsHidden()
+                        Button("Schedule continuation") { editingResetTime = false; store.call(["op": "schedule", "id": task.id, "reset": resetDate.timeIntervalSince1970]) }.disabled(store.busy || task.state == "Running")
+                        if editingResetTime, let reset = task.reset {
+                            Button("Use scheduled reset time") {
+                                resetDate = Date(timeIntervalSince1970: reset)
+                                editingResetTime = false
+                            }.font(.caption)
+                        }
+                        Text("Runs about 15 seconds after the reset, or after this Mac wakes. Scheduling also enables auto-resume.").font(.caption).foregroundStyle(.secondary)
+                        HStack {
+                            Button("Resume Now") { store.call(["op": "resume", "id": task.id]) }.buttonStyle(.borderedProminent).disabled(store.busy || task.state == "Running")
+                            Button("Run log") {
+                                let p = NSHomeDirectory() + "/Library/Application Support/Ajo Night Watcher/" + task.id + ".cursor.log"
+                                if FileManager.default.fileExists(atPath: p) { NSWorkspace.shared.open(URL(fileURLWithPath: p)) }
+                                else { store.error = "No watcher run log yet for this task." }
+                            }
+                        }
+                        Button("Mark idle after stopping in Cursor…") { showIdleConfirmation = true }.font(.caption)
+                        Spacer()
+                    } else {
+                        Spacer()
+                        Image(systemName: "sidebar.left").font(.largeTitle).foregroundStyle(.secondary)
+                        Text("Select a task to watch").font(.headline)
+                        Text("Sessions are discovered from Cursor's local chats and agent transcripts. No folders are assumed to be apps.").foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }.padding().frame(minWidth: 310, maxWidth: 390)
+            }
+            if !store.error.isEmpty { Text(store.error).foregroundStyle(.red).font(.callout).textSelection(.enabled) }
+            HStack {
+                Text("\(store.tasks.filter { $0.armed }.count) watched · \(store.tasks.filter { $0.state == "Waiting" && $0.armed }.count) waiting · \(store.tasks.filter { $0.state == "Rate limited" }.count) rate limited").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Text("Local only · Cursor session resume").font(.caption).foregroundStyle(.secondary)
+            }
+        }.padding(20).frame(minWidth: 830, minHeight: 730)
+        .onChange(of: selection) { _ in
+            editingResetTime = false
+            resetDate = selected?.reset.map { Date(timeIntervalSince1970: $0) } ?? Date().addingTimeInterval(3600)
+        }
+        .onChange(of: selected?.reset) { value in
+            guard !editingResetTime else { return }
+            resetDate = value.map { Date(timeIntervalSince1970: $0) } ?? Date().addingTimeInterval(3600)
+        }
+        .alert("Confirm the task has stopped", isPresented: $showIdleConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Mark Idle") { if let id = selection { store.call(["op": "idle", "id": id]) } }
+        } message: { Text("Use this only after stopping the task in Cursor. An old Running record cannot reliably tell whether another client is still working.") }
+        .sheet(isPresented: $settings) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Settings").font(.title2.bold())
+                Text("Cursor executable")
+                TextField("Absolute path or executable name", text: $draftCLI).textFieldStyle(.roundedBorder)
+                Text("Continuation prompt")
+                TextEditor(text: $draftPrompt).font(.body).frame(height: 120).border(Color.secondary.opacity(0.3))
+                Text("Continuations run headless via `cursor-agent -p --resume`. Headless resume is not yet smoke-tested; monitoring works regardless. If a run needs permissions or a reply, review it in Cursor.").font(.callout).foregroundStyle(.secondary)
+                HStack { Spacer(); Button("Cancel") { settings = false }; Button("Save") { store.call(["op": "settings", "cli": draftCLI, "prompt": draftPrompt]); settings = false }.buttonStyle(.borderedProminent) }
+            }.padding(24).frame(width: 550)
         }
     }
 }
